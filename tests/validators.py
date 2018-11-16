@@ -13,22 +13,11 @@ from utils import (
     update_yaml_with_arch,
 )
 
-def validate_dns():
-    """
-    Validate DNS by starting a busy box and nslookuping the kubernetes default service.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    manifest = os.path.join(here, "templates", "bbox.yaml")
-    kubectl("apply -f {}".format(manifest))
-    wait_for_pod_state("busybox", "default", "running")
-    output = kubectl("exec -ti busybox -- nslookup kubernetes.default.svc.cluster.local")
-    assert "10.152.183.1" in output
-    kubectl("delete -f {}".format(manifest))
 
-
-def validate_dashboard():
+def validate_dns_dashboard():
     """
     Validate the dashboard addon by looking at the grafana URL.
+    Validate DNS by starting a busy box and nslookuping the kubernetes default service.
     """
     wait_for_pod_state("", "kube-system", "running", label="k8s-app=influxGrafana")
     cluster_info = kubectl("cluster-info")
@@ -54,6 +43,27 @@ def validate_dashboard():
         time.sleep(2)
         attempt -= 1
     assert resp.status_code == 200
+
+    # Test DNS now
+    here = os.path.dirname(os.path.abspath(__file__))
+    manifest = os.path.join(here, "templates", "bbox.yaml")
+    attempt = 50
+    output = ""
+    while attempt >= 0:
+        kubectl("apply -f {}".format(manifest))
+        wait_for_pod_state("busybox", "default", "running")
+        time.sleep(10)
+        try:
+            output = kubectl("exec -ti busybox -- nslookup kubernetes")
+            if "Address 1: 10.152.183.1 kubernetes.default.svc.cluster.local" in output:
+                kubectl("delete -f {}".format(manifest))
+                break
+        except:
+            pass
+        kubectl("delete -f {}".format(manifest))
+        time.sleep(4)
+        attempt -= 1
+    assert "Address 1: 10.152.183.1 kubernetes.default.svc.cluster.local" in output
 
 
 def validate_storage():
